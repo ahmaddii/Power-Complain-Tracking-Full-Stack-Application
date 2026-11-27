@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { ArrowLeft, Calendar, Camera, CheckCircle2, MapPin, Phone, Tag, User } from "lucide-react";
 import { toast } from "sonner";
@@ -8,8 +8,9 @@ import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AppShell } from "@/components/app/AppShell";
-import { EmptyState, PriorityBadge, StatusBadge, StatusProgress, readFiles } from "@/components/app/badges";
+import { EmptyState, PriorityBadge, StatusBadge, StatusProgress, UserAvatar } from "@/components/app/badges";
 import { useStore } from "@/hooks/use-store";
+import { uploadImages } from "@/lib/storage";
 import { meta } from "@/lib/meta";
 import { PRIORITIES, STATUSES, formatDateTime } from "@/utils/helpers";
 import type { Complaint, Priority, Status } from "@/types";
@@ -44,10 +45,24 @@ const Gallery = ({ imgs }: { imgs: string[] }) =>
 function Detail() {
   const { id } = Route.useParams();
   const router = useRouter();
-  const { complaints, currentUser, userById } = useStore();
+  const { complaints, currentUser, userById, refresh } = useStore();
+  const [syncing, setSyncing] = useState(false);
+  const [syncedId, setSyncedId] = useState<string | null>(null);
   const c = complaints.find((x) => x.id === id);
   const role = currentUser!.role;
 
+  useEffect(() => {
+    if (c || syncedId === id) return;
+    setSyncing(true);
+    void refresh().finally(() => {
+      setSyncedId(id);
+      setSyncing(false);
+    });
+  }, [c, id, syncedId, refresh]);
+
+  if (!c && (syncing || syncedId !== id)) {
+    return <div className="py-16 text-center text-sm text-muted-foreground">Loading complaint…</div>;
+  }
   if (!c) return <EmptyState title="Complaint not found">No complaint with ID {id}.</EmptyState>;
   const allowed = role === "admin" || (role === "consumer" && c.consumerId === currentUser!.id) || (role === "worker" && c.workerId === currentUser!.id);
   if (!allowed) return <EmptyState title="Not available">You don't have access to this complaint.</EmptyState>;
@@ -76,7 +91,22 @@ function Detail() {
             <p className="whitespace-pre-line text-sm leading-relaxed">{c.description}</p>
             <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
               <div className="flex gap-2"><Tag className="h-4 w-4 text-muted-foreground" /><dd>{c.category}</dd></div>
-              <div className="flex gap-2"><MapPin className="h-4 w-4 text-muted-foreground" /><dd>{c.address}</dd></div>
+              <div className="flex gap-2">
+                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <dd className="space-y-1">
+                  <span className="block">{c.address}</span>
+                  {c.latitude !== undefined && c.longitude !== undefined && (
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${c.latitude},${c.longitude}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+                    >
+                      Open pin in Maps ({c.latitude.toFixed(4)}, {c.longitude.toFixed(4)}) →
+                    </a>
+                  )}
+                </dd>
+              </div>
               <div className="flex gap-2"><Calendar className="h-4 w-4 text-muted-foreground" /><dd>Reported {formatDateTime(c.createdAt)}</dd></div>
               {role !== "consumer" && <div className="flex gap-2"><User className="h-4 w-4 text-muted-foreground" /><dd>{consumer?.name} · {consumer?.phone}</dd></div>}
             </dl>
@@ -102,7 +132,11 @@ function Detail() {
           <Card title="Assigned worker">
             {worker ? (
               <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-accent text-sm font-semibold text-primary">{worker.name.split(" ").map((p) => p[0]).join("")}</span>
+                <UserAvatar
+                  name={worker.name}
+                  avatarUrl={worker.avatarUrl}
+                  className="h-10 w-10 rounded-full bg-accent text-sm text-primary"
+                />
                 <div className="text-sm">
                   <p className="font-medium">{worker.name}</p>
                   <p className="flex items-center gap-1 text-muted-foreground"><Phone className="h-3 w-3" />{worker.phone}</p>
@@ -171,7 +205,7 @@ function AdminPanel({ c }: { c: Complaint }) {
 }
 
 function WorkerPanel({ c }: { c: Complaint }) {
-  const { setStatus, setProgress, addNote, addEvidence } = useStore();
+  const { setStatus, setProgress, addNote, addEvidence, currentUser } = useStore();
   const [note, setNote] = useState("");
   const [prog, setProg] = useState(c.progress);
   const resolved = c.status === "Resolved";
@@ -184,7 +218,22 @@ function WorkerPanel({ c }: { c: Complaint }) {
         {!resolved && (
           <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed text-xs text-muted-foreground hover:bg-muted">
             <Camera className="h-4 w-4" />Upload
-            <input type="file" accept="image/*" className="hidden" onChange={async (e) => { (await readFiles(e.target.files)).forEach((u) => addEvidence(c.id, kind, u)); toast.success("Evidence uploaded"); }} />
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              className="hidden"
+              onChange={async (e) => {
+                const picked = Array.from(e.target.files ?? []);
+                e.target.value = "";
+                if (!picked.length || !currentUser) return;
+                const loadingId = toast.loading("Uploading photo…");
+                const { urls, error } = await uploadImages(picked, currentUser.id);
+                toast.dismiss(loadingId);
+                if (error) return toast.error(error);
+                urls.forEach((u) => addEvidence(c.id, kind, u));
+                toast.success("Evidence uploaded");
+              }}
+            />
           </label>
         )}
       </div>

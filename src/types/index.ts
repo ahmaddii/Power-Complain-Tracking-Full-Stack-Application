@@ -17,6 +17,7 @@ export interface User {
   phone: string;
   role: Role;
   area?: string;
+  avatarUrl?: string;
   active: boolean;
 }
 
@@ -41,6 +42,8 @@ export interface Complaint {
   priority: Priority;
   status: Status;
   address: string;
+  latitude?: number;
+  longitude?: number;
   consumerId: string;
   workerId?: string;
   createdAt: string;

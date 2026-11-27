@@ -1,8 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import type { Complaint, Notification, Role, Status, User, Priority } from "@/types";
-import { SEED_NOTIFICATIONS, SEED_USERS, buildSeedComplaints } from "@/data/mock";
-
-const KEY = "powertrack-state-v1";
+import { toast } from "sonner";
+import type { Complaint, HistoryEntry, Notification, Priority, Role, Status, User, WorkNote } from "@/types";
+import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 
 interface State {
   users: User[];
@@ -11,137 +10,490 @@ interface State {
   currentUserId: string | null;
 }
 
-const seed = (): State => ({
-  users: SEED_USERS,
-  complaints: buildSeedComplaints(),
-  notifications: SEED_NOTIFICATIONS,
+const EMPTY_STATE: State = {
+  users: [],
+  complaints: [],
+  notifications: [],
   currentUserId: null,
+};
+
+function friendlyAuthError(raw?: string): string {
+  if (raw && import.meta.env.DEV) {
+    console.error("[Power-Track Auth]", raw);
+  }
+  const m = (raw ?? "").toLowerCase();
+  if (m.includes("invalid api key")) {
+    return "Unable to connect to authentication right now. Please check your configuration or try again shortly.";
+  }
+  if (m.includes("invalid login credentials")) {
+    return "Incorrect email or password. Please double-check your details and try again.";
+  }
+  if (m.includes("email not confirmed")) {
+    return "Please verify your email address using the link we sent you before signing in.";
+  }
+  if (m.includes("already registered") || m.includes("already exists")) {
+    return "An account with this email already exists. Try signing in instead.";
+  }
+  if (m.includes("provider is not enabled") || m.includes("unsupported provider")) {
+    return "Google sign-in isn't enabled yet. Please sign in with your email and password.";
+  }
+  if (m.includes("rate limit") || m.includes("too many requests")) {
+    return "Too many attempts right now. Please wait a moment and try again.";
+  }
+  if (m.includes("fetch") || m.includes("network")) {
+    return "Connection issue — please check your internet and try again.";
+  }
+  if (m.includes("password")) {
+    return "Your password doesn't meet the requirements. Use at least 6 characters.";
+  }
+  if (m.includes("database error")) {
+    return "Your account could not be saved yet. Please make sure the database schema is set up and try again.";
+  }
+  return "Something went wrong. Please try again.";
+}
+
+const PROG: Record<Status, number> = {
+  Submitted: 0,
+  "Under Review": 10,
+  Assigned: 25,
+  "In Progress": 60,
+  Resolved: 100,
+};
+
+interface DbProfile {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  role: Role;
+  area: string | null;
+  avatar_url: string | null;
+  active: boolean;
+}
+
+interface DbComplaint {
+  id: string;
+  title: string;
+  description: string;
+  category: Complaint["category"];
+  priority: Priority;
+  status: Status;
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
+  consumer_id: string;
+  worker_id: string | null;
+  images: string[] | null;
+  evidence_before: string[] | null;
+  evidence_after: string[] | null;
+  history: HistoryEntry[] | null;
+  notes: WorkNote[] | null;
+  progress: number;
+  duplicate_of: string | null;
+  duplicate_dismissed: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+interface DbNotification {
+  id: string;
+  user_id: string;
+  title: string;
+  message: string;
+  read: boolean;
+  complaint_id: string | null;
+  created_at: string;
+}
+
+const fromDbProfile = (p: DbProfile): User => ({
+  id: p.id,
+  name: p.name || p.email.split("@")[0],
+  email: p.email,
+  phone: p.phone || "",
+  role: p.role,
+  area: p.area ?? undefined,
+  avatarUrl: p.avatar_url ?? undefined,
+  active: p.active,
 });
 
-const PROG: Record<Status, number> = { Submitted: 0, "Under Review": 10, Assigned: 25, "In Progress": 60, Resolved: 100 };
+const fromDbComplaint = (c: DbComplaint): Complaint => ({
+  id: c.id,
+  title: c.title,
+  description: c.description,
+  category: c.category,
+  priority: c.priority,
+  status: c.status,
+  address: c.address,
+  latitude: c.latitude ?? undefined,
+  longitude: c.longitude ?? undefined,
+  consumerId: c.consumer_id,
+  workerId: c.worker_id ?? undefined,
+  createdAt: c.created_at,
+  updatedAt: c.updated_at,
+  images: c.images ?? [],
+  evidence: {
+    before: c.evidence_before ?? [],
+    after: c.evidence_after ?? [],
+  },
+  history: Array.isArray(c.history) ? c.history : [],
+  notes: Array.isArray(c.notes) ? c.notes : [],
+  progress: c.progress ?? 0,
+  duplicateOf: c.duplicate_of ?? undefined,
+  duplicateDismissed: c.duplicate_dismissed ?? false,
+});
+
+const fromDbNotification = (n: DbNotification): Notification => ({
+  id: n.id,
+  userId: n.user_id,
+  title: n.title,
+  message: n.message,
+  at: n.created_at,
+  read: n.read,
+  complaintId: n.complaint_id ?? undefined,
+});
 
 function useStoreImpl() {
-  const [state, setState] = useState<State>(seed);
+  const [state, setState] = useState<State>(EMPTY_STATE);
   const [hydrated, setHydrated] = useState(false);
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) setState(JSON.parse(raw));
-    } catch {
-      /* ignore */
-    }
-    setHydrated(true);
+  const loadWorkspace = useCallback(async (uid: string) => {
+    const [profilesRes, complaintsRes, notificationsRes] = await Promise.all([
+      supabase.from("profiles").select("*").order("created_at", { ascending: true }),
+      supabase.from("complaints").select("*").order("created_at", { ascending: false }),
+      supabase.from("notifications").select("*").order("created_at", { ascending: false }),
+    ]);
+
+    const users = (profilesRes.data as DbProfile[] | null)?.map(fromDbProfile) ?? [];
+    const complaints = (complaintsRes.data as DbComplaint[] | null)?.map(fromDbComplaint) ?? [];
+    const notifications = (notificationsRes.data as DbNotification[] | null)?.map(fromDbNotification) ?? [];
+
+    setState({
+      users,
+      complaints,
+      notifications,
+      currentUserId: uid,
+    });
+    return users.find((u) => u.id === uid) ?? null;
   }, []);
 
   useEffect(() => {
-    if (hydrated) localStorage.setItem(KEY, JSON.stringify(state));
-  }, [state, hydrated]);
+    if (!isSupabaseConfigured) {
+      setHydrated(true);
+      return;
+    }
+
+    let active = true;
+
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (!active) return;
+      if (data.session?.user) {
+        await loadWorkspace(data.session.user.id);
+      } else {
+        setState(EMPTY_STATE);
+      }
+      if (active) setHydrated(true);
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
+      if (session?.user) {
+        void loadWorkspace(session.user.id);
+      } else {
+        setState(EMPTY_STATE);
+      }
+    });
+
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, [loadWorkspace]);
 
   const currentUser = state.users.find((u) => u.id === state.currentUserId) ?? null;
   const now = () => new Date().toISOString();
   const roleLabel = (r?: Role) => (r === "admin" ? "Admin" : r === "worker" ? "Field Worker" : "Consumer");
 
-  const notify = (s: State, userId: string | undefined, title: string, message: string, complaintId?: string): Notification[] =>
-    userId
-      ? [{ id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, userId, title, message, at: now(), read: false, complaintId }, ...s.notifications]
-      : s.notifications;
-
-  const loginAs = useCallback((role: Role) => {
-    const u = SEED_USERS.find((x) => x.role === role)!;
-    setState((s) => ({ ...s, currentUserId: u.id }));
-    return u;
-  }, []);
-
-  const loginEmail = (email: string) => {
-    const u = state.users.find((x) => x.email.toLowerCase() === email.toLowerCase());
-    if (u) setState((s) => ({ ...s, currentUserId: u.id }));
-    return u ?? null;
+  const refreshNotifications = async (uid: string) => {
+    const { data } = await supabase.from("notifications").select("*").order("created_at", { ascending: false });
+    if (!data) return;
+    const mapped = (data as DbNotification[]).map(fromDbNotification);
+    setState((s) => (s.currentUserId === uid ? { ...s, notifications: mapped } : s));
   };
 
-  const register = (data: Pick<User, "name" | "email" | "phone">) => {
-    const u: User = { ...data, id: `u-${Date.now()}`, role: "consumer", active: true };
-    setState((s) => ({ ...s, users: [...s.users, u], currentUserId: u.id }));
-    return u;
+  // Notifications are created by database triggers; listen for new ones in realtime
+  // and refresh complaints/profiles so newly assigned tasks open immediately.
+  useEffect(() => {
+    const uid = state.currentUserId;
+    if (!uid || !isSupabaseConfigured) return;
+    const channel = supabase
+      .channel(`notifications:${uid}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${uid}` },
+        (payload) => {
+          const incoming = fromDbNotification(payload.new as DbNotification);
+          setState((s) =>
+            s.notifications.some((n) => n.id === incoming.id)
+              ? s
+              : { ...s, notifications: [incoming, ...s.notifications] },
+          );
+          if (incoming.complaintId) {
+            void loadWorkspace(uid);
+          }
+        },
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [state.currentUserId, loadWorkspace]);
+
+  const loginWithPassword = async (email: string, password: string): Promise<{ user: User | null; error?: string }> => {
+    if (!isSupabaseConfigured) {
+      return { user: null, error: "Sign-in is currently unavailable. Please try again shortly." };
+    }
+    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (error || !data.user) {
+      return { user: null, error: friendlyAuthError(error?.message) };
+    }
+    const user = await loadWorkspace(data.user.id);
+    if (!user) {
+      return {
+        user: null,
+        error: "We couldn't load your profile yet. Please try again in a moment.",
+      };
+    }
+    if (!user.active) {
+      await supabase.auth.signOut();
+      return {
+        user: null,
+        error:
+          user.role === "worker"
+            ? "Your Field Worker account is pending administrator approval. You'll be able to sign in once approved."
+            : "This account is currently deactivated. Please contact an administrator.",
+      };
+    }
+    return { user };
   };
 
-  const logout = () => setState((s) => ({ ...s, currentUserId: null }));
-  const updateUser = (id: string, patch: Partial<User>) =>
-    setState((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? { ...u, ...patch } : u)) }));
-  const addUser = (u: Omit<User, "id">) => setState((s) => ({ ...s, users: [...s.users, { ...u, id: `u-${Date.now()}` }] }));
-
-  const addComplaint = (c: Complaint) =>
-    setState((s) => {
-      const admin = s.users.find((u) => u.role === "admin");
-      let n = notify(s, admin?.id, "New complaint", `${c.id}: ${c.title}`, c.id);
-      n = notify({ ...s, notifications: n }, c.consumerId, "Complaint submitted", `Your complaint ${c.id} was received.`, c.id);
-      return { ...s, complaints: [c, ...s.complaints], notifications: n };
-    });
-
-  const patchComplaint = (id: string, fn: (c: Complaint, s: State) => { c: Partial<Complaint>; notes?: [string | undefined, string, string][] }) =>
-    setState((s) => {
-      let notifications = s.notifications;
-      const complaints = s.complaints.map((c) => {
-        if (c.id !== id) return c;
-        const r = fn(c, s);
-        r.notes?.forEach(([uid, t, m]) => (notifications = notify({ ...s, notifications }, uid, t, m, id)));
-        return { ...c, ...r.c, updatedAt: now() };
-      });
-      return { ...s, complaints, notifications };
-    });
-
-  const setStatus = (id: string, status: Status, note?: string) =>
-    patchComplaint(id, (c) => ({
-      c: {
-        status,
-        progress: Math.max(PROG[status], status === "Resolved" ? 100 : c.progress),
-        history: [...c.history, { status, at: now(), by: roleLabel(currentUser?.role), note }],
+  const loginWithOAuth = async (provider: "google"): Promise<{ error?: string }> => {
+    if (!isSupabaseConfigured) {
+      return { error: "Google sign-in is currently unavailable. Please try again shortly." };
+    }
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: typeof window !== "undefined" ? `${window.location.origin}/login` : undefined,
       },
-      notes: [
-        [c.consumerId, `Status: ${status}`, `${c.id} is now ${status}.`],
-        ...(currentUser?.role === "worker" ? [[state.users.find((u) => u.role === "admin")?.id, `Worker update`, `${c.id} → ${status}`] as [string | undefined, string, string]] : []),
-      ],
+    });
+    return error ? { error: friendlyAuthError(error.message) } : {};
+  };
+
+  const register = async (data: {
+    name: string;
+    email: string;
+    phone: string;
+    password: string;
+    role?: "consumer" | "worker";
+    area?: string;
+  }): Promise<{ user: User | null; needsConfirmation?: boolean; pendingApproval?: boolean; error?: string }> => {
+    if (!isSupabaseConfigured) {
+      return { user: null, error: "Registration is currently unavailable. Please try again shortly." };
+    }
+    const requestedRole = data.role === "worker" ? "worker" : "consumer";
+    const { data: authData, error } = await supabase.auth.signUp({
+      email: data.email.trim(),
+      password: data.password,
+      options: {
+        data: {
+          name: data.name.trim(),
+          phone: data.phone.trim(),
+          requested_role: requestedRole,
+          area: data.area?.trim() || undefined,
+        },
+      },
+    });
+    if (error) return { user: null, error: friendlyAuthError(error.message) };
+    if (requestedRole === "worker") {
+      if (authData.session) await supabase.auth.signOut();
+      setState(EMPTY_STATE);
+      return { user: null, pendingApproval: true };
+    }
+    if (!authData.session || !authData.user) {
+      return { user: null, needsConfirmation: true };
+    }
+    const user = await loadWorkspace(authData.user.id);
+    if (!user) {
+      return {
+        user: null,
+        error: "Account created, but your profile could not be loaded yet. Please try signing in.",
+      };
+    }
+    return { user };
+  };
+
+  const logout = async () => {
+    if (isSupabaseConfigured) await supabase.auth.signOut();
+    setState(EMPTY_STATE);
+  };
+
+  const sendPasswordReset = async (email: string): Promise<{ error?: string }> => {
+    if (!isSupabaseConfigured) {
+      return { error: "Password reset is currently unavailable. Please try again shortly." };
+    }
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: typeof window !== "undefined" ? `${window.location.origin}/profile` : undefined,
+    });
+    return error ? { error: friendlyAuthError(error.message) } : {};
+  };
+
+  const updatePassword = async (password: string): Promise<{ error?: string }> => {
+    if (!isSupabaseConfigured) return { error: "Password updates are currently unavailable." };
+    const { error } = await supabase.auth.updateUser({ password });
+    return error ? { error: friendlyAuthError(error.message) } : {};
+  };
+
+  const updateUser = async (id: string, patch: Partial<User>) => {
+    const dbPatch: Record<string, unknown> = {};
+    if (patch.name !== undefined) dbPatch.name = patch.name;
+    if (patch.email !== undefined) dbPatch.email = patch.email;
+    if (patch.phone !== undefined) dbPatch.phone = patch.phone;
+    if (patch.area !== undefined) dbPatch.area = patch.area || null;
+    if (patch.avatarUrl !== undefined) dbPatch.avatar_url = patch.avatarUrl || null;
+    if (patch.role !== undefined) dbPatch.role = patch.role;
+    if (patch.active !== undefined) dbPatch.active = patch.active;
+
+    setState((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? { ...u, ...patch } : u)) }));
+    const { error } = await supabase.from("profiles").update(dbPatch).eq("id", id);
+    if (error) {
+      toast.error(error.message);
+      if (state.currentUserId) void loadWorkspace(state.currentUserId);
+    }
+  };
+
+  /** Creates a complaint. The database assigns the ID and creates notifications. Returns the new ID. */
+  const addComplaint = async (c: Complaint): Promise<string | null> => {
+    const payload = {
+      title: c.title,
+      description: c.description,
+      category: c.category,
+      priority: c.priority,
+      status: c.status,
+      address: c.address,
+      latitude: c.latitude ?? null,
+      longitude: c.longitude ?? null,
+      consumer_id: c.consumerId,
+      worker_id: c.workerId ?? null,
+      images: c.images,
+      evidence_before: c.evidence.before,
+      evidence_after: c.evidence.after,
+      history: c.history,
+      notes: c.notes,
+      progress: c.progress,
+      duplicate_of: c.duplicateOf ?? null,
+      duplicate_dismissed: c.duplicateDismissed ?? false,
+    };
+
+    const { data, error } = await supabase.from("complaints").insert(payload).select("*").single();
+    if (error || !data) {
+      if (import.meta.env.DEV && error) console.error("[Power-Track DB]", error.message);
+      toast.error("We couldn't submit your complaint. Please try again.");
+      return null;
+    }
+
+    const created = fromDbComplaint(data as DbComplaint);
+    setState((s) => ({ ...s, complaints: [created, ...s.complaints] }));
+    void refreshNotifications(created.consumerId);
+    return created.id;
+  };
+
+  const patchComplaint = async (
+    id: string,
+    build: (c: Complaint) => { patch: Partial<Complaint>; dbPatch: Record<string, unknown> },
+  ) => {
+    const target = state.complaints.find((c) => c.id === id);
+    if (!target) return;
+    const { patch, dbPatch } = build(target);
+    const updatedAt = now();
+
+    setState((s) => ({
+      ...s,
+      complaints: s.complaints.map((c) => (c.id === id ? { ...c, ...patch, updatedAt } : c)),
     }));
 
+    const { error } = await supabase.from("complaints").update(dbPatch).eq("id", id);
+    if (error) {
+      if (import.meta.env.DEV) console.error("[Power-Track DB]", error.message);
+      toast.error(error.message.includes("Only administrators") ? error.message : "That change couldn't be saved. Please try again.");
+      if (state.currentUserId) void loadWorkspace(state.currentUserId);
+    }
+  };
+
+  const setStatus = (id: string, status: Status, note?: string) =>
+    void patchComplaint(id, (c) => {
+      const progress = Math.max(PROG[status], status === "Resolved" ? 100 : c.progress);
+      const history = [...c.history, { status, at: now(), by: roleLabel(currentUser?.role), note }];
+      return { patch: { status, progress, history }, dbPatch: { status, progress, history } };
+    });
+
   const assign = (id: string, workerId: string) =>
-    patchComplaint(id, (c, s) => {
-      const w = s.users.find((u) => u.id === workerId);
+    void patchComplaint(id, (c) => {
+      const w = state.users.find((u) => u.id === workerId);
+      const status: Status = c.status === "Submitted" || c.status === "Under Review" ? "Assigned" : c.status;
+      const progress = Math.max(c.progress, 25);
+      const history = [...c.history, { status: "Assigned" as Status, at: now(), by: "Admin", note: `Assigned to ${w?.name ?? "worker"}` }];
       return {
-        c: {
-          workerId,
-          status: c.status === "Submitted" || c.status === "Under Review" ? "Assigned" : c.status,
-          progress: Math.max(c.progress, 25),
-          history: [...c.history, { status: "Assigned", at: now(), by: "Admin", note: `Assigned to ${w?.name}` }],
-        },
-        notes: [
-          [workerId, "New assignment", `You were assigned ${c.id} (${c.priority}).`],
-          [c.consumerId, "Worker assigned", `${w?.name} has been assigned to ${c.id}.`],
-        ],
+        patch: { workerId, status, progress, history },
+        dbPatch: { worker_id: workerId, status, progress, history },
       };
     });
 
   const setPriority = (id: string, priority: Priority) =>
-    patchComplaint(id, (c) => ({ c: { priority }, notes: [[c.workerId, "Priority changed", `${c.id} priority set to ${priority}.`]] }));
-  const setProgress = (id: string, progress: number) => patchComplaint(id, () => ({ c: { progress } }));
-  const addNote = (id: string, text: string) =>
-    patchComplaint(id, (c) => ({ c: { notes: [...c.notes, { at: now(), by: currentUser?.name ?? "Worker", text }] } }));
-  const addEvidence = (id: string, kind: "before" | "after", url: string) =>
-    patchComplaint(id, (c) => ({ c: { evidence: { ...c.evidence, [kind]: [...c.evidence[kind], url] } } }));
-  const resolveDuplicate = (id: string, action: "merge" | "dismiss") =>
-    patchComplaint(id, (c) =>
-      action === "dismiss"
-        ? { c: { duplicateDismissed: true } }
-        : {
-            c: { status: "Resolved", progress: 100, duplicateDismissed: true, history: [...c.history, { status: "Resolved", at: now(), by: "Admin", note: `Merged into ${c.duplicateOf}` }] },
-            notes: [[c.consumerId, "Merged as duplicate", `${c.id} was merged into ${c.duplicateOf}; follow that complaint for updates.`]],
-          },
-    );
+    void patchComplaint(id, () => ({ patch: { priority }, dbPatch: { priority } }));
 
-  const markRead = (id: string) =>
+  const setProgress = (id: string, progress: number) =>
+    void patchComplaint(id, () => ({ patch: { progress }, dbPatch: { progress } }));
+
+  const addNote = (id: string, text: string) =>
+    void patchComplaint(id, (c) => {
+      const notes = [...c.notes, { at: now(), by: currentUser?.name ?? "Worker", text }];
+      return { patch: { notes }, dbPatch: { notes } };
+    });
+
+  const addEvidence = (id: string, kind: "before" | "after", url: string) =>
+    void patchComplaint(id, (c) => {
+      const next = [...c.evidence[kind], url];
+      return {
+        patch: { evidence: { ...c.evidence, [kind]: next } },
+        dbPatch: kind === "before" ? { evidence_before: next } : { evidence_after: next },
+      };
+    });
+
+  const resolveDuplicate = (id: string, action: "merge" | "dismiss") =>
+    void patchComplaint(id, (c) => {
+      if (action === "dismiss") {
+        return { patch: { duplicateDismissed: true }, dbPatch: { duplicate_dismissed: true } };
+      }
+      const history = [...c.history, { status: "Resolved" as Status, at: now(), by: "Admin", note: `Merged into ${c.duplicateOf}` }];
+      return {
+        patch: { status: "Resolved", progress: 100, duplicateDismissed: true, history },
+        dbPatch: { status: "Resolved", progress: 100, duplicate_dismissed: true, history },
+      };
+    });
+
+  const markRead = async (id: string) => {
     setState((s) => ({ ...s, notifications: s.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)) }));
-  const markAllRead = () =>
-    setState((s) => ({ ...s, notifications: s.notifications.map((n) => (n.userId === s.currentUserId ? { ...n, read: true } : n)) }));
-  const resetDemo = () => setState({ ...seed(), currentUserId: state.currentUserId });
+    await supabase.from("notifications").update({ read: true }).eq("id", id);
+  };
+
+  const markAllRead = async () => {
+    if (!state.currentUserId) return;
+    setState((s) => ({
+      ...s,
+      notifications: s.notifications.map((n) => (n.userId === s.currentUserId ? { ...n, read: true } : n)),
+    }));
+    await supabase.from("notifications").update({ read: true }).eq("user_id", state.currentUserId).eq("read", false);
+  };
 
   const myNotifications = useMemo(
     () => state.notifications.filter((n) => n.userId === state.currentUserId),
@@ -153,12 +505,14 @@ function useStoreImpl() {
     hydrated,
     currentUser,
     myNotifications,
-    loginAs,
-    loginEmail,
+    isSupabaseConfigured,
+    loginWithPassword,
+    loginWithOAuth,
     register,
     logout,
+    sendPasswordReset,
+    updatePassword,
     updateUser,
-    addUser,
     addComplaint,
     setStatus,
     assign,
@@ -169,7 +523,7 @@ function useStoreImpl() {
     resolveDuplicate,
     markRead,
     markAllRead,
-    resetDemo,
+    refresh: () => (state.currentUserId ? loadWorkspace(state.currentUserId) : Promise.resolve(null)),
     userById: (id?: string) => state.users.find((u) => u.id === id),
   };
 }

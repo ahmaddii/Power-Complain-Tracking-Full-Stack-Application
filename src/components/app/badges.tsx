@@ -82,16 +82,35 @@ export function EmptyState({ title, children }: { title: string; children?: Reac
   );
 }
 
-export function readFiles(files: FileList | null): Promise<string[]> {
-  if (!files) return Promise.resolve([]);
-  return Promise.all(
-    Array.from(files).map(
-      (f) =>
-        new Promise<string>((res) => {
-          const r = new FileReader();
-          r.onload = () => res(r.result as string);
-          r.readAsDataURL(f);
-        }),
-    ),
+export function UserAvatar({
+  name,
+  avatarUrl,
+  className,
+}: {
+  name?: string;
+  avatarUrl?: string;
+  className?: string;
+}) {
+  const initials = (name || "?")
+    .split(" ")
+    .map((p) => p[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+  if (avatarUrl) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={name || "User avatar"}
+        className={cn("shrink-0 object-cover", className)}
+      />
+    );
+  }
+
+  return (
+    <span className={cn("flex shrink-0 items-center justify-center font-bold", className)}>
+      {initials}
+    </span>
   );
 }

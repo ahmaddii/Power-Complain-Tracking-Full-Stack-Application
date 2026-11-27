@@ -33,7 +33,7 @@ function Duplicates() {
   const flagged = complaints.filter((c) => c.duplicateOf && !c.duplicateDismissed);
   return (
     <>
-      <PageHeader title="Duplicate review" description="Complaints with the same category and a matching location are flagged automatically (simulated)." />
+      <PageHeader title="Duplicate review" description="Complaints with the same category and a matching location are flagged automatically." />
       {flagged.length === 0 ? (
         <EmptyState title="No flagged duplicates">All caught up.</EmptyState>
       ) : (

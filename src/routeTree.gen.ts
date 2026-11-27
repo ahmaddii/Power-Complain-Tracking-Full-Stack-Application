@@ -21,8 +21,10 @@ import { Route as WorkerRouteImport } from './routes/worker'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminAnalyticsRouteImport } from './routes/admin.analytics'
 import { Route as AdminComplaintsRouteImport } from './routes/admin.complaints'
+import { Route as AdminConsumersRouteImport } from './routes/admin.consumers'
 import { Route as AdminDuplicatesRouteImport } from './routes/admin.duplicates'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
+import { Route as AdminWorkersRouteImport } from './routes/admin.workers'
 import { Route as ComplaintsIdRouteImport } from './routes/complaints.$id'
 import { Route as ConsumerIndexRouteImport } from './routes/consumer.index'
 import { Route as ConsumerComplaintsRouteImport } from './routes/consumer.complaints'
@@ -90,6 +92,11 @@ const AdminComplaintsRoute = AdminComplaintsRouteImport.update({
   path: '/complaints',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminConsumersRoute = AdminConsumersRouteImport.update({
+  id: '/consumers',
+  path: '/consumers',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminDuplicatesRoute = AdminDuplicatesRouteImport.update({
   id: '/duplicates',
   path: '/duplicates',
@@ -98,6 +105,11 @@ const AdminDuplicatesRoute = AdminDuplicatesRouteImport.update({
 const AdminUsersRoute = AdminUsersRouteImport.update({
   id: '/users',
   path: '/users',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminWorkersRoute = AdminWorkersRouteImport.update({
+  id: '/workers',
+  path: '/workers',
   getParentRoute: () => AdminRoute,
 } as any)
 const ComplaintsIdRoute = ComplaintsIdRouteImport.update({
@@ -143,8 +155,10 @@ export interface FileRoutesByFullPath {
   '/worker': typeof WorkerRouteWithChildren
   '/admin/analytics': typeof AdminAnalyticsRoute
   '/admin/complaints': typeof AdminComplaintsRoute
+  '/admin/consumers': typeof AdminConsumersRoute
   '/admin/duplicates': typeof AdminDuplicatesRoute
   '/admin/users': typeof AdminUsersRoute
+  '/admin/workers': typeof AdminWorkersRoute
   '/complaints/$id': typeof ComplaintsIdRoute
   '/consumer/complaints': typeof ConsumerComplaintsRoute
   '/consumer/submit': typeof ConsumerSubmitRoute
@@ -162,8 +176,10 @@ export interface FileRoutesByTo {
   '/register': typeof RegisterRoute
   '/admin/analytics': typeof AdminAnalyticsRoute
   '/admin/complaints': typeof AdminComplaintsRoute
+  '/admin/consumers': typeof AdminConsumersRoute
   '/admin/duplicates': typeof AdminDuplicatesRoute
   '/admin/users': typeof AdminUsersRoute
+  '/admin/workers': typeof AdminWorkersRoute
   '/complaints/$id': typeof ComplaintsIdRoute
   '/consumer/complaints': typeof ConsumerComplaintsRoute
   '/consumer/submit': typeof ConsumerSubmitRoute
@@ -185,8 +201,10 @@ export interface FileRoutesById {
   '/worker': typeof WorkerRouteWithChildren
   '/admin/analytics': typeof AdminAnalyticsRoute
   '/admin/complaints': typeof AdminComplaintsRoute
+  '/admin/consumers': typeof AdminConsumersRoute
   '/admin/duplicates': typeof AdminDuplicatesRoute
   '/admin/users': typeof AdminUsersRoute
+  '/admin/workers': typeof AdminWorkersRoute
   '/complaints/$id': typeof ComplaintsIdRoute
   '/consumer/complaints': typeof ConsumerComplaintsRoute
   '/consumer/submit': typeof ConsumerSubmitRoute
@@ -209,8 +227,10 @@ export interface FileRouteTypes {
     | '/worker'
     | '/admin/analytics'
     | '/admin/complaints'
+    | '/admin/consumers'
     | '/admin/duplicates'
     | '/admin/users'
+    | '/admin/workers'
     | '/complaints/$id'
     | '/consumer/complaints'
     | '/consumer/submit'
@@ -228,8 +248,10 @@ export interface FileRouteTypes {
     | '/register'
     | '/admin/analytics'
     | '/admin/complaints'
+    | '/admin/consumers'
     | '/admin/duplicates'
     | '/admin/users'
+    | '/admin/workers'
     | '/complaints/$id'
     | '/consumer/complaints'
     | '/consumer/submit'
@@ -250,8 +272,10 @@ export interface FileRouteTypes {
     | '/worker'
     | '/admin/analytics'
     | '/admin/complaints'
+    | '/admin/consumers'
     | '/admin/duplicates'
     | '/admin/users'
+    | '/admin/workers'
     | '/complaints/$id'
     | '/consumer/complaints'
     | '/consumer/submit'
@@ -360,6 +384,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminComplaintsRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/consumers': {
+      id: '/admin/consumers'
+      path: '/consumers'
+      fullPath: '/admin/consumers'
+      preLoaderRoute: typeof AdminConsumersRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/duplicates': {
       id: '/admin/duplicates'
       path: '/duplicates'
@@ -372,6 +403,13 @@ declare module '@tanstack/react-router' {
       path: '/users'
       fullPath: '/admin/users'
       preLoaderRoute: typeof AdminUsersRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/workers': {
+      id: '/admin/workers'
+      path: '/workers'
+      fullPath: '/admin/workers'
+      preLoaderRoute: typeof AdminWorkersRouteImport
       parentRoute: typeof AdminRoute
     }
     '/complaints/$id': {
@@ -422,16 +460,20 @@ declare module '@tanstack/react-router' {
 interface AdminRouteChildren {
   AdminAnalyticsRoute: typeof AdminAnalyticsRoute
   AdminComplaintsRoute: typeof AdminComplaintsRoute
+  AdminConsumersRoute: typeof AdminConsumersRoute
   AdminDuplicatesRoute: typeof AdminDuplicatesRoute
   AdminUsersRoute: typeof AdminUsersRoute
+  AdminWorkersRoute: typeof AdminWorkersRoute
   AdminIndexRoute: typeof AdminIndexRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminAnalyticsRoute: AdminAnalyticsRoute,
   AdminComplaintsRoute: AdminComplaintsRoute,
+  AdminConsumersRoute: AdminConsumersRoute,
   AdminDuplicatesRoute: AdminDuplicatesRoute,
   AdminUsersRoute: AdminUsersRoute,
+  AdminWorkersRoute: AdminWorkersRoute,
   AdminIndexRoute: AdminIndexRoute,
 }
 

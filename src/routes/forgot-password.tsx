@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { MailCheck } from "lucide-react";
+import { Loader2, MailCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AuthLayout } from "@/components/app/AuthLayout";
+import { useStore } from "@/hooks/use-store";
 import { meta } from "@/lib/meta";
 
 export const Route = createFileRoute("/forgot-password")({
@@ -13,35 +14,47 @@ export const Route = createFileRoute("/forgot-password")({
 });
 
 function Forgot() {
+  const { sendPasswordReset } = useStore();
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!/^\S+@\S+\.\S+$/.test(email)) return setErr("Enter a valid email address.");
+    setLoading(true);
+    const { error } = await sendPasswordReset(email);
+    setLoading(false);
+    if (error) return setErr(error);
+    setSent(true);
+  };
+
   return (
     <AuthLayout title="Forgot password" subtitle="We'll send you a link to reset your password.">
       {sent ? (
         <div className="text-center">
           <MailCheck className="mx-auto h-10 w-10 text-primary" />
-          <p className="mt-4 text-sm">If an account exists for <strong>{email}</strong>, a reset link is on its way.</p>
-          <p className="mt-1 text-xs text-muted-foreground">(Demo: no email is actually sent.)</p>
-          <Button asChild variant="outline" className="mt-6 w-full"><Link to="/login">Back to sign in</Link></Button>
+          <p className="mt-4 text-sm">
+            If an account exists for <strong>{email}</strong>, a reset link is on its way.
+          </p>
+          <Button asChild variant="outline" className="mt-6 w-full">
+            <Link to="/login">Back to sign in</Link>
+          </Button>
         </div>
       ) : (
-        <form
-          noValidate
-          className="space-y-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!/^\S+@\S+\.\S+$/.test(email)) return setErr("Enter a valid email address.");
-            setSent(true);
-          }}
-        >
+        <form noValidate className="space-y-4" onSubmit={submit}>
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input id="email" type="email" value={email} onChange={(e) => (setEmail(e.target.value), setErr(""))} />
             {err && <p className="text-xs text-destructive">{err}</p>}
           </div>
-          <Button type="submit" className="w-full">Send reset link</Button>
-          <p className="text-center text-sm"><Link to="/login" className="text-primary hover:underline">Back to sign in</Link></p>
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Sending…</> : "Send reset link"}
+          </Button>
+          <p className="text-center text-sm">
+            <Link to="/login" className="text-primary hover:underline">Back to sign in</Link>
+          </p>
         </form>
       )}
     </AuthLayout>
