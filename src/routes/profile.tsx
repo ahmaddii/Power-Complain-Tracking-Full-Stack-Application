@@ -6,7 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { AppShell } from "@/components/app/AppShell";
 import { useStore } from "@/hooks/use-store";
 import { meta } from "@/lib/meta";
-import { uploadImages } from "@/lib/storage";
+import { uploadAvatar } from "@/lib/storage";
 
 export const Route = createFileRoute("/profile")({
   head: () => meta("Profile & Settings", "Manage your Power-Track profile and notification preferences."),
@@ -42,12 +42,12 @@ function Profile() {
     if (!file) return;
 
     setUploadingAvatar(true);
-    const { urls, error } = await uploadImages([file], u.id);
-    if (error || !urls[0]) {
+    const { url, error } = await uploadAvatar(file, u.id);
+    if (error || !url) {
       setUploadingAvatar(false);
       return toast.error(error ?? "Couldn't upload avatar.");
     }
-    await updateUser(u.id, { avatarUrl: urls[0] });
+    await updateUser(u.id, { avatarUrl: url });
     setUploadingAvatar(false);
     toast.success("Profile photo updated");
   };
