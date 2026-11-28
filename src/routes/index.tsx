@@ -260,44 +260,44 @@ function Landing() {
 
   return (
     <div ref={rootRef} className="min-h-screen bg-background text-foreground">
-      {/* Centered Floating Ink-Black Pill Navbar — Solid surface (no backdrop-blur GPU artifact) */}
+      {/* Centered Floating Frosted-Glass Pill Navbar */}
       <header className="pointer-events-none fixed inset-x-0 top-5 z-50 px-4">
-        <div className="js-nav-pill pointer-events-auto mx-auto flex w-fit max-w-full items-center gap-3 rounded-full border border-white/10 bg-foreground py-2.5 pl-6 pr-2.5 text-background shadow-2xl shadow-foreground/20 sm:gap-5 sm:pl-7 sm:pr-3">
+        <div className="js-nav-pill pointer-events-auto mx-auto flex w-fit max-w-full items-center gap-3 rounded-full border border-white/60 bg-card/65 py-2.5 pl-6 pr-2.5 text-foreground shadow-[0_10px_35px_-10px_rgba(24,20,16,0.14),inset_0_1px_0_rgba(255,255,255,0.75)] ring-1 ring-foreground/10 backdrop-blur-xl backdrop-saturate-150 dark:border-white/15 dark:bg-card/55 dark:shadow-[0_10px_35px_-10px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.12)] sm:gap-5 sm:pl-7 sm:pr-3">
           <Link
             to="/"
-            className="inline-flex items-center gap-2.5 border-r border-white/10 pr-4 sm:pr-6"
+            className="inline-flex items-center gap-2.5 border-r border-foreground/10 pr-4 sm:pr-6"
           >
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm shadow-primary/25">
               <Zap className="h-4 w-4 fill-current" />
             </span>
-            <span className="text-sm font-bold tracking-tight text-background">Power-Track</span>
+            <span className="text-sm font-bold tracking-tight text-foreground">Power-Track</span>
           </Link>
 
-          <nav className="hidden items-center gap-2 text-sm font-medium text-background/75 md:flex">
+          <nav className="hidden items-center gap-2 text-sm font-medium text-foreground/75 md:flex">
             <a
               href="#how-it-works"
               onClick={(e) => scrollToSection(e, "#how-it-works")}
-              className="rounded-full px-4 py-2.5 transition-colors hover:bg-white/10 hover:text-background"
+              className="rounded-full px-4 py-2.5 transition-colors hover:bg-foreground/8 hover:text-foreground"
             >
               How it works
             </a>
             <a
               href="#who-it-serves"
               onClick={(e) => scrollToSection(e, "#who-it-serves")}
-              className="rounded-full px-4 py-2.5 transition-colors hover:bg-white/10 hover:text-background"
+              className="rounded-full px-4 py-2.5 transition-colors hover:bg-foreground/8 hover:text-foreground"
             >
               Roles
             </a>
             <a
               href="#issues"
               onClick={(e) => scrollToSection(e, "#issues")}
-              className="rounded-full px-4 py-2.5 transition-colors hover:bg-white/10 hover:text-background"
+              className="rounded-full px-4 py-2.5 transition-colors hover:bg-foreground/8 hover:text-foreground"
             >
               Coverage
             </a>
             <Link
               to="/login"
-              className="rounded-full px-4 py-2.5 transition-colors hover:bg-white/10 hover:text-background"
+              className="rounded-full px-4 py-2.5 transition-colors hover:bg-foreground/8 hover:text-foreground"
             >
               Sign in
             </Link>
@@ -305,14 +305,14 @@ function Landing() {
 
           <Link
             to="/login"
-            className="rounded-full px-3 py-2 text-xs font-medium text-background/80 transition-colors hover:text-background md:hidden"
+            className="rounded-full px-3 py-2 text-xs font-medium text-foreground/80 transition-colors hover:text-foreground md:hidden"
           >
             Sign in
           </Link>
 
           <Link
             to="/register"
-            className="ml-1 inline-flex items-center justify-center rounded-full bg-primary px-6 py-3 text-xs font-semibold text-primary-foreground shadow-sm transition-all hover:brightness-110 sm:px-7 sm:text-sm"
+            className="ml-1 inline-flex items-center justify-center rounded-full bg-primary px-6 py-3 text-xs font-semibold text-primary-foreground shadow-sm shadow-primary/25 transition-all hover:brightness-110 sm:px-7 sm:text-sm"
           >
             Report issue
           </Link>
